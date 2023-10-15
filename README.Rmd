@@ -1,0 +1,142 @@
+---
+output: github_document
+---
+
+<!-- README.md is generated from README.Rmd. Please edit that file -->
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.path = "man/figures/README-",
+  out.width = "100%"
+)
+```
+
+# nabeatsuR
+
+<!-- badges: start -->
+<!-- badges: end -->
+
+## これは何？
+
+「3の倍数」または「いずれかの位に3がある数」を判定します。
+
+## パフォーマンス
+
+「3の倍数」または「いずれかの位に3がある数」を判定する関数として、`nabeatsuR::detect_digit1`と`nabeatsuR::detect_digit2`の2つを用意しました。
+
+`detect_digit1`は、ベクトルのすべての要素について「3の倍数」か「いずれかの位に3がある数」かをそれぞれ判定し、2つのlogical vectorsの論理和をとります。
+一方で、`detect_digit2`では、先に3で割った余りを求めてから、剰余が0でなかった要素のみについて「いずれかの位に3がある数」かを判定し、ここで`TRUE`になった位置にある要素を後から`TRUE`に置き換えるという処理をします。
+
+「いずれかの位に3がある数」かを判定する文字列処理には`base::grepl`、`stringi::stri_detect_fixed`と、[ashvardanian/StringZilla](https://github.com/ashvardanian/StringZilla)をラップした`nabeatsuR:::nb_detect_cpp`を使います。
+
+1e+05までの自然数について、これらの関数で「3の倍数」または「いずれかの位に3がある数」の判定をすると、次のようになります。
+
+```{r}
+require(nabeatsuR)
+require(microbenchmark)
+require(ggplot2)
+
+v <- seq_len(10^5)
+
+(three <- microbenchmark(
+  detect_digit1(v, engine = "base"),
+  detect_digit1(v, engine = "stringi"),
+  detect_digit1(v, engine = "stringzilla"),
+  detect_digit2(v, engine = "base"),
+  detect_digit2(v, engine = "stringi"),
+  detect_digit2(v, engine = "stringzilla"),
+  times = 30,
+  check = "equal"
+))
+
+autoplot(three)
+```
+
+`detect_digit2`は一見無駄な処理をしていてパフォーマンスが悪化しているように見えますが、判定する値のなかに桁が長い数がたくさんある（文字列として処理するコストが高くなる）場合に効果的です。
+
+```{r}
+v <- sample(c(9007199254740994, 9007199254740995), 10^5, replace = TRUE)
+
+(three <- microbenchmark(
+  detect_digit1(v, engine = "base"),
+  detect_digit1(v, engine = "stringi"),
+  detect_digit1(v, engine = "stringzilla"),
+  detect_digit2(v, engine = "base"),
+  detect_digit2(v, engine = "stringi"),
+  detect_digit2(v, engine = "stringzilla"),
+  times = 30,
+  check = "equal"
+))
+
+autoplot(three)
+```
+
+```{r}
+v <- sample.int(10^8, 10^5, replace = TRUE)
+
+(three <- microbenchmark(
+  detect_digit1(v, engine = "base"),
+  detect_digit1(v, engine = "stringi"),
+  detect_digit1(v, engine = "stringzilla"),
+  detect_digit2(v, engine = "base"),
+  detect_digit2(v, engine = "stringi"),
+  detect_digit2(v, engine = "stringzilla"),
+  times = 30,
+  check = "equal"
+))
+
+autoplot(three)
+```
+
+一方で、`detect_digit2`が効果的なのは「3の倍数」が比較的高い密度で存在しているためであって、たとえば「7の倍数」または「いずれかの位に7がある数」を判定する場合では、`detect_digit1`と大きな差はなくなるようです。
+
+```{r}
+(seven <- microbenchmark(
+  detect_digit1(v, 7, engine = "base"),
+  detect_digit1(v, 7, engine = "stringi"),
+  detect_digit1(v, 7, engine = "stringzilla"),
+  detect_digit2(v, 7, engine = "base"),
+  detect_digit2(v, 7, engine = "stringi"),
+  detect_digit2(v, 7, engine = "stringzilla"),
+  times = 30,
+  check = "equal"
+))
+
+autoplot(seven)
+```
+
+## 文字列検索はどれが速いのか
+
+正規表現を使わない場合、`base::grep`や`base::grepl`が速いようです。ASCII文字を検索する場合、ヒューリスティクスが有効にはたらくとStringZillaのラッパーも速いようですが、手もとの環境でふつうに使うかぎりではstringrのほうが速いようでした。
+
+```{r}
+v <- text2vec::movie_review |>
+  tidytext::unnest_tokens(token, review) |>
+  dplyr::pull(token) |>
+  sample(10^5, replace = TRUE)
+
+microbenchmark(
+  grepl("movie", v, fixed = TRUE),
+  stringr::str_detect(v, stringr::fixed("movie")),
+  nabeatsuR::strzl_detect(v, "movie"),
+  times = 30,
+  check = "equal"
+)
+```
+
+```{r}
+v <- c(letters, LETTERS, as.character(0:9)) |>
+  sample(500 * 10^5, replace = TRUE) |>
+  vctrs::vec_chop(sizes = rep_len(500, 10^5)) |>
+  purrr::map_chr(~ paste0(., collapse = ""))
+
+microbenchmark(
+  grep("aaa", v, value = FALSE, fixed = TRUE),
+  stringr::str_which(v, stringr::fixed("aaa")),
+  nabeatsuR::strzl_which(v, "aaa"),
+  times = 30,
+  check = "equal"
+)
+```

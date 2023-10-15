@@ -1,0 +1,2 @@
+PKG_CPPFLAGS += -fno-builtin-memcmp -msse -msse4.2 -mavx2
+PKG_LIBS += -latomic -pthread
